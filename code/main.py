@@ -17,8 +17,8 @@ DEFAULT_DATA_DIR = os.path.join(MAIN_DIR, "data")
 EXPERIMENTS_DIR = os.path.join(MAIN_DIR, "experiments")
 
 # General
-tf.app.flags.DEFINE_integer("batch_size", 100, "Sets the batch size.")
-tf.app.flags.DEFINE_integer("eval_every", 500,
+tf.app.flags.DEFINE_integer("batch_size", 2, "Sets the batch size.")
+tf.app.flags.DEFINE_integer("eval_every", 1,
                             "How many iterations to do per calculating the "
                             "dice coefficient on the dev set. This operation "
                             "is time-consuming, so should not be done often.")
@@ -28,7 +28,7 @@ tf.app.flags.DEFINE_string("experiment_name", "",
                            "to this experiment will be saved.")
 tf.app.flags.DEFINE_integer("gpu", 0,
                             "Sets which GPU to use, if you have multiple.")
-tf.app.flags.DEFINE_integer("keep", None,
+tf.app.flags.DEFINE_integer("keep", 1,
                             "How many checkpoints to keep. None means keep "
                             "all. These files are storage-consuming so should "
                             "not be kept in aggregate.")
@@ -59,7 +59,7 @@ tf.app.flags.DEFINE_boolean("merge_target_masks", True,
                             "Sets whether to merge target masks or not.")
 tf.app.flags.DEFINE_boolean("use_fake_target_masks", False,
                             "Sets whether to use fake target masks or not.")
-tf.app.flags.DEFINE_boolean("use_volumetric", False,
+tf.app.flags.DEFINE_boolean("use_volumetric", True,
                             "Sets whether to use volumetric data or not.")
 
 # Split
@@ -71,7 +71,7 @@ tf.app.flags.DEFINE_integer("p", None,
                             "to floor(0.3 * n) where n represents the number "
                             "groups implied by {split_type}; e.g. n=220 for "
                             "by_patient, n=229 for by_scan, n=9 for by_site.")
-tf.app.flags.DEFINE_string("split_type", "by_slice",
+tf.app.flags.DEFINE_string("split_type", "by_scan",
                            "Sets the type of split between the train and dev "
                            "sets i.e. whether certain slices or volumes of "
                            "slices must be part of the same split. Options: "
@@ -107,6 +107,7 @@ tf.app.flags.DEFINE_string("model_name", "ATLASModel",
                            "atlas_model.py.")
 tf.app.flags.DEFINE_integer("slice_height", 232, "Sets the image height.")
 tf.app.flags.DEFINE_integer("slice_width", 196, "Sets the image width.")
+tf.app.flags.DEFINE_integer("scan_depth", 189, "Sets the 3-D depth, i.e. number of images per scan.")
 
 FLAGS = tf.app.flags.FLAGS
 os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
@@ -205,7 +206,7 @@ def main(_):
                                                         dev_input_paths,
                                                         dev_target_mask_paths,
                                                         "dev",
-                                                        num_samples=1000,
+                                                        num_samples=FLAGS.dev_num_samples,
                                                         plot=True)
       logging.info(f"dev dice_coefficient: {dev_dice}")
 

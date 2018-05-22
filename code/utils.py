@@ -53,7 +53,8 @@ def write_summary(value, tag, summary_writer, global_step):
 def add_summary_image_triplet(inputs_op,
                               target_masks_op,
                               predicted_masks_op,
-                              num_images=4):
+                              num_images=4,
+                              use_volumetric=False):
   """
   Adds triplets of (input, target_mask, predicted_mask) images.
 
@@ -71,12 +72,16 @@ def add_summary_image_triplet(inputs_op,
     image height dim by 3 * image width dim e.g. (100, 233, 197*3, 1).
   """
   # Converts from (100, 233, 197) to (100, 233, 197, 1)
-  inputs_op = tf.expand_dims(inputs_op, axis=3)
-  target_masks_op = tf.expand_dims(target_masks_op, axis=3)
-  predicted_masks_op = tf.cast(tf.expand_dims(predicted_masks_op, axis=3),
+  inputs_op = tf.expand_dims(inputs_op, axis=-1)
+  target_masks_op = tf.expand_dims(target_masks_op, axis=-1)
+  predicted_masks_op = tf.cast(tf.expand_dims(predicted_masks_op, axis=-1),
                                dtype=tf.float32)
 
   triplets = tf.concat([inputs_op, target_masks_op, predicted_masks_op],
-                       axis=2)
+                       axis=-2)
 
-  tf.summary.image("triplets", triplets[:num_images], max_outputs=num_images)
+  # if volumetric, picks something in the middle
+  if not use_volumetric:
+    tf.summary.image("triplets", triplets[:num_images], max_outputs=num_images)
+  else:
+    tf.summary.image("triplets", triplets[:,100][:num_images], max_outputs=num_images)

@@ -4,7 +4,7 @@ import time
 import re
 
 from PIL import Image
-
+from tqdm import tqdm
 
 class Batch(object):
   def __init__(self,
@@ -124,57 +124,76 @@ class SliceBatchGenerator(object):
 
     for input_path_list, target_mask_path_list in zipped_path_lists:
       if self._use_fake_target_masks:
-        input = Image.open(input_path_list[0]).convert("L")
-        # Image.resize expects (width, height) order
+        inputs = []
+        for path in input_path_list:
+          input = Image.open(path).convert("L")
+          # Image.resize expects (width, height) order
+          # input = input.resize(self._shape[::-1], Image.NEAREST)
+          input = input.crop((0, 0) + self._shape[0:2][::-1])
+          inputs.append(np.asarray(input))
+        input = np.array(inputs) / 255.0
+
         examples.append((
           # np.asarray(input.resize(self._shape[::-1], Image.NEAREST)),
-          np.asarray(input.crop((0, 0) + self._shape[::-1])),
+          input,
           np.zeros(self._shape),
-          input_path_list[0],
+          input_path_list,
           "fake_target_mask"
         ))
       else:
         # Assumes {input_path_list} is a list with length 1;
         # opens input, resizes it, converts to a numpy array
-        input = Image.open(input_path_list[0]).convert("L")
-        # input = input.resize(self._shape[::-1], Image.NEAREST)
-        input = input.crop((0, 0) + self._shape[::-1])
-        input = np.asarray(input) / 255.0
+        inputs = []
+        for path in input_path_list:
+          input = Image.open(path).convert("L")
+          # Image.resize expects (width, height) order
+          # input = input.resize(self._shape[::-1], Image.NEAREST)
+          input = input.crop((0, 0) + self._shape[0:2][::-1])
+          inputs.append(np.asarray(input))
+        input = np.array(inputs) / 255.0
 
         # Assumes {target_mask_path_list} is a list of lists, where the outer
         # list has length 1 and the inner list has length >= 1;
         # Merges target masks if list contains more than one path
-        target_mask_list = list(map(
-          lambda target_mask_path: Image.open(target_mask_path).convert("L"),
-          target_mask_path_list[0]))
-        target_mask_list = list(map(
-          # lambda target_mask: target_mask.resize(self._shape[::-1], Image.NEAREST),
-          lambda target_mask: target_mask.crop((0, 0) + self._shape[::-1]),
-          target_mask_list))
+        target_masks = []
+        for path in target_mask_path_list:
+          target_mask_list = list(map(
+            lambda target_mask_path: Image.open(target_mask_path).convert("L"),
+            target_mask_path_list[0]))
+          target_mask_list = list(map(
+            # lambda target_mask: target_mask.resize(self._shape[::-1], Image.NEAREST),
+            lambda target_mask: target_mask.crop((0, 0) + self._shape[0:2][::-1]),
+            target_mask_list))
 
-        target_mask_list = list(map(
-          # lambda target_mask: (np.asarray(target_mask.resize(self._shape[::-1], Image.NEAREST)) > 1e-8) + 0.0,
-          lambda target_mask: (np.asarray(target_mask)) / 255.0,
-          target_mask_list))
-        target_mask = np.minimum(np.sum(target_mask_list, axis=0), 1.0)
+          target_mask_list = list(map(
+            # lambda target_mask: (np.asarray(target_mask.resize(self._shape[::-1], Image.NEAREST)) > 1e-8) + 0.0,
+            lambda target_mask: (np.asarray(target_mask)) / 255.0,
+            target_mask_list))
+          target_mask = np.minimum(np.sum(target_mask_list, axis=0), 1.0)
+          target_masks.append(target_mask)
+        target_mask = np.array(target_masks)
 
-        # Image.resize expects (width, height) order
         examples.append((
           input,
           # Converts all values >0 to 1s
           target_mask,
-          input_path_list[0],
-          target_mask_path_list[0]
+          input_path_list,
+          target_mask_path_list
         ))
       if len(examples) >= self._batch_size * self._max_num_refill_batches:
         break
 
+    # print(examples);exit()
+    # Rearrange numpy arrays to be h, w, c
+    # print(input_batch.shape)
+    inputs_batch = inputs_batch.transpose((0,2,3,1))
+    target_masks_batch = target_masks_batch.transpose((0,2,3,1))
+    # print(input_batch.shape);exit()
+
     for batch_start_idx in range(0, len(examples), self._batch_size):
-      (inputs_batch, target_masks_batch, input_paths_batch,
-       target_mask_path_lists_batch) =\
-         zip(*examples[batch_start_idx:batch_start_idx+self._batch_size])
-      self._batches.append((np.asarray(inputs_batch),
-                            np.asarray(target_masks_batch),
+      (inputs_batch, target_masks_batch, input_paths_batch, target_mask_path_lists_batch) = zip(*examples[batch_start_idx:batch_start_idx+self._batch_size])
+      self._batches.append((np.squeeze(np.asarray(inputs_batch)),
+                            np.squeeze(np.asarray(target_masks_batch)),
                             input_paths_batch,
                             target_mask_path_lists_batch))
 

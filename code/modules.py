@@ -174,5 +174,67 @@ class UNet(NeuralNetwork):
 
       conv11 = self.conv2d(drop10, filter_shape=[1, 1, 64, 1], scope_name="conv11")  # (b, 232, 196, 1)
       out = tf.identity(conv11, name="out")
-
     return out
+
+# modified from: https://github.com/areiner222/MDLSTM/blob/master/md_lstm.py
+# class PyramidLSTMCell(tf.contrib.rnn.RNNCell):
+#   def __init__(self,num_units,forget_bias=0.0,activation=tf.nn.tanh):
+#     self._num_units = num_units
+#     self._forget_bias = forget_bias
+#     self._activation = activation
+
+#     @property
+#     def state_size(self):
+#         return LSTMStateTuple(self._num_units, self._num_units)
+
+#     @property
+#     def output_size(self):
+#         return self._num_units
+
+#     def __call__(self, inputs, state, scope=None):
+#         """Long short-term memory cell (LSTM).
+#         @param: inputs (batch,n)
+#         @param state: the states and hidden unit of the two cells
+#         """
+#         with tf.variable_scope(scope or type(self).__name__):
+#             c1, c2, h1, h2 = state
+
+#             # change bias argument to False since LN will add bias via shift
+#             concat = _linear([inputs, h1, h2], 5 * self._num_units, False)
+
+#             i, j, f1, f2, o = tf.split(value=concat, num_or_size_splits=5, axis=1)
+
+#             # add layer normalization to each gate
+#             i = ln(i, scope='i/')
+#             j = ln(j, scope='j/')
+#             f1 = ln(f1, scope='f1/')
+#             f2 = ln(f2, scope='f2/')
+#             o = ln(o, scope='o/')
+
+#             new_c = (c1 * tf.nn.sigmoid(f1 + self._forget_bias) +
+#                      c2 * tf.nn.sigmoid(f2 + self._forget_bias) + tf.nn.sigmoid(i) *
+#                      self._activation(j))
+
+#             # add layer_normalization in calculation of new hidden state
+#             new_h = self._activation(ln(new_c, scope='new_h/')) * tf.nn.sigmoid(o)
+#             new_state = LSTMStateTuple(new_c, new_h)
+
+#             return new_h, new_state
+
+class PyramidLSTM(object):
+  def __init__(self,input_shape,scope_name="plstm"):
+    self.input_shape = input_shape
+    self.scope_name = scope_name
+
+  def build_graph(self,input):
+    """
+    Naming convention is 0,0 for top left
+    """
+
+    # 1,2,3,4,5,6
+    pass 
+    
+    # with tf.variable_scope(self.scope_name):
+    #   cells = []
+    #   cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=self.input_shape,kernel_shape=[3, 3],output_channels=8)
+    #   (outputs,state) = tf.nn.dynamic_rnn(cell,x_image,time_major=False,dtype=tf.float32)

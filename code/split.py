@@ -5,7 +5,7 @@ import math
 import os
 import random
 import re
-
+import subprocess
 
 def _add_paths_to_lists(input_paths_list,
                         target_mask_paths_list,
@@ -172,7 +172,10 @@ def setup_train_dev_split(FLAGS):
   if FLAGS.split_type == "by_patient":
     n = 220
   elif FLAGS.split_type == "by_scan":
-    n = 229
+    # find . -type d -wholename "*Site*/t[0-9][0-9]" | wc -l
+    # n = 229
+    find = subprocess.Popen(['find',FLAGS.data_dir,'-type','d','-wholename','*Site*/t[0-9][0-9]'],stdout=subprocess.PIPE)
+    n = int(subprocess.check_output(['wc','-l'],stdin=find.stdout))
   elif FLAGS.split_type == "by_slice":
     # find . -type f -wholename "*Site*/*/*/*_t1w_deface_stx/*.jpg" | wc -l
     n = 43281
@@ -236,6 +239,9 @@ def setup_train_dev_split(FLAGS):
                            recursive=True)
     random.shuffle(scan_paths)
     input_paths = train_input_paths
+
+    # print("len(scan_paths):{}".format(len(scan_paths)))
+    # print("n-FLAGS.p:{}".format(n-FLAGS.p))
     for idx, scan_path in enumerate(scan_paths):
       if idx >= n - FLAGS.p:
         input_paths = dev_input_paths
@@ -247,6 +253,8 @@ def setup_train_dev_split(FLAGS):
       else:
         for slice_path_by_scan in slice_paths_by_scan:
           input_paths.append([slice_path_by_scan])
+    # print("len(train_input_paths):{}".format(len(train_input_paths)))
+    # print("len(dev_input_paths):{}".format(len(dev_input_paths)))
   elif FLAGS.split_type == "by_slice":
     # A shuffled list of all paths to input (MRI) slices
     if FLAGS.input_regex == None:

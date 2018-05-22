@@ -2,6 +2,8 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Disables a warning about TF missing support CPU instruction AVX2 FMA
+
 import sys
 import tensorflow as tf
 import time
@@ -10,7 +12,7 @@ from tqdm import tqdm
 
 import utils
 from data_batcher import SliceBatchGenerator
-from modules import ConvEncoder, DeconvDecoder, UNet
+from modules import ConvEncoder, DeconvDecoder, UNet, PyramidLSTM
 
 
 class ATLASModel(object):
@@ -48,7 +50,8 @@ class ATLASModel(object):
     utils.add_summary_image_triplet(self.inputs_op,
                                     self.target_masks_op,
                                     self.predicted_masks_op,
-                                    num_images=self.FLAGS.num_summary_images)
+                                    num_images=self.FLAGS.num_summary_images,
+                                    use_volumetric=self.FLAGS.use_volumetric)
 
     # Defines savers (for checkpointing) and summaries (for tensorboard)
     self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=FLAGS.keep)
@@ -75,7 +78,10 @@ class ATLASModel(object):
     # Defines the input dimensions, which depend on the intended input; here
     # the intended input is a single slice but volumetric inputs might require
     # 1+ additional dimensions
-    self.input_dims = [self.FLAGS.slice_height, self.FLAGS.slice_width]
+    if not self.FLAGS.use_volumetric:
+      self.input_dims = [self.FLAGS.slice_height, self.FLAGS.slice_width]
+    else:
+      self.input_dims = [self.FLAGS.slice_height, self.FLAGS.slice_width,self.FLAGS.scan_depth]
     self.output_dims = self.input_dims
 
     # Defines input and target segmentation mask according to the input dims
@@ -312,8 +318,7 @@ class ATLASModel(object):
                               target_mask_paths,
                               self.FLAGS.batch_size,
                               num_samples=num_samples,
-                              shape=(self.FLAGS.slice_height,
-                                     self.FLAGS.slice_width),
+                              shape=tuple([self.FLAGS.slice_height, self.FLAGS.slice_width]+([self.FLAGS.scan_depth] if self.FLAGS.use_volumetric else [])),
                               use_fake_target_masks=self.FLAGS.use_fake_target_masks)
     # Iterates over batches
     for batch in sbg.get_batch():
@@ -372,8 +377,7 @@ class ATLASModel(object):
     sbg = SliceBatchGenerator(input_paths,
                               target_mask_paths,
                               self.FLAGS.batch_size,
-                              shape=(self.FLAGS.slice_height,
-                                     self.FLAGS.slice_width),
+                              shape=tuple([self.FLAGS.slice_height, self.FLAGS.slice_width]+([self.FLAGS.scan_depth] if self.FLAGS.use_volumetric else [])),
                               use_fake_target_masks=self.FLAGS.use_fake_target_masks)
     for batch in sbg.get_batch():
       predicted_masks = self.get_predicted_masks_for_batch(sess, batch)
@@ -386,6 +390,16 @@ class ATLASModel(object):
                 target_mask,
                 input_path,
                 target_mask_path_list) in enumerate(zipped_masks):
+        # print(predicted_mask.shape,predicted_mask)
+        # print(target_mask.shape,target_mask)
+        # print(input_path)
+        # print(target_mask_path_list);exit()
+
+        # In the non-volumetric case, convert 1-element list to element, may be optional
+        if not self.FLAGS.use_volumetric:
+          input_path = input_path[0]
+          target_mask_path_list = target_mask_path_list[0]
+
         dice_coefficient = utils.dice_coefficient(predicted_mask, target_mask)
         if dice_coefficient >= 0.0:
           dice_coefficient_total += dice_coefficient
@@ -413,7 +427,7 @@ class ATLASModel(object):
       if num_samples != None and num_examples >= num_samples:
         break
 
-    dice_coefficient_mean = dice_coefficient_total / num_examples
+    dice_coefficient_mean = dice_coefficient_total / num_examples if num_examples != 0 else dice_coefficient_total
 
     toc = time.time()
     logging.info(f"Calculating dice coefficient took {toc-tic} sec.")
@@ -457,8 +471,7 @@ class ATLASModel(object):
       sbg = SliceBatchGenerator(train_input_paths,
                                 train_target_mask_paths,
                                 self.FLAGS.batch_size,
-                                shape=(self.FLAGS.slice_height,
-                                       self.FLAGS.slice_width),
+                                shape=tuple([self.FLAGS.slice_height, self.FLAGS.slice_width]+([self.FLAGS.scan_depth] if self.FLAGS.use_volumetric else [])),
                                 use_fake_target_masks=self.FLAGS.use_fake_target_masks)
       num_epochs_str = str(num_epochs) if num_epochs != None else "indefinite"
       for batch in tqdm(sbg.get_batch(),
@@ -563,7 +576,6 @@ class ZeroATLASModel(ATLASModel):
                                       tf.uint8,
                                       name="predicted_masks")
 
-
 class UNetATLASModel(ATLASModel):
   def __init__(self, FLAGS):
     """
@@ -589,3 +601,33 @@ class UNetATLASModel(ATLASModel):
     self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,
                                       tf.uint8,
                                       name="predicted_masks")
+
+class PyramidLstmATLASModel(ATLASModel):
+  def __init__(self,FLAGS):
+    """ Initializes a Pyramid LSTM ATLAS model. For now, contains ZeroATLAS model results.
+
+    Inputs:
+    - FLAGS: A _FlagValuesWrapper object passed in from main.py.
+    """
+    super().__init__(FLAGS)
+
+  def build_graph(self):
+    assert(self.input_dims == self.inputs_op.get_shape().as_list()[1:])
+    # print("self.input_dims:{}".format(self.input_dims))
+    # plstm = PyramidLSTM(input_shape=self.input_dims,scope_name="plstm")
+    # self.logits_op = plstm.build_graph(self.inputs_op)
+    # self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")
+    # self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,tf.uint8,name="predicted_masks")
+
+    c = tf.get_variable(initializer=tf.constant_initializer(-18.420680734),
+                        name="c",
+                        shape=())
+    self.logits_op = tf.ones(shape=[self.FLAGS.batch_size] + self.input_dims,
+                             dtype=tf.float32) * c
+    print('logits_shape:{}'.format(self.logits_op.shape))
+    self.predicted_mask_probs_op = tf.sigmoid(self.logits_op,
+                                              name="predicted_mask_probs")
+    self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,
+                                      tf.uint8,
+                                      name="predicted_masks")
+    print('predicted_masks_op_shape:{}'.format(self.predicted_masks_op.shape))
