@@ -183,20 +183,16 @@ class SliceBatchGenerator(object):
       if len(examples) >= self._batch_size * self._max_num_refill_batches:
         break
 
-    # print(examples);exit()
-    # Rearrange numpy arrays to be h, w, c
-    # print(input_batch.shape)
-    inputs_batch = inputs_batch.transpose((0,2,3,1))
-    target_masks_batch = target_masks_batch.transpose((0,2,3,1))
-    # print(input_batch.shape);exit()
-
     for batch_start_idx in range(0, len(examples), self._batch_size):
       (inputs_batch, target_masks_batch, input_paths_batch, target_mask_path_lists_batch) = zip(*examples[batch_start_idx:batch_start_idx+self._batch_size])
-      self._batches.append((np.squeeze(np.asarray(inputs_batch)),
-                            np.squeeze(np.asarray(target_masks_batch)),
+
+      inputs_batch = np.squeeze(np.asarray(inputs_batch).transpose((0,2,3,1)))
+      target_masks_batch = np.squeeze(np.asarray(target_masks_batch).transpose((0,2,3,1)))
+
+      self._batches.append((inputs_batch,
+                            target_masks_batch,
                             input_paths_batch,
                             target_mask_path_lists_batch))
-
 
   def get_batch(self):
     """
