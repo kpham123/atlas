@@ -176,53 +176,51 @@ class UNet(NeuralNetwork):
       out = tf.identity(conv11, name="out")
     return out
 
-# modified from: https://github.com/areiner222/MDLSTM/blob/master/md_lstm.py
-# class PyramidLSTMCell(tf.contrib.rnn.RNNCell):
-#   def __init__(self,num_units,forget_bias=0.0,activation=tf.nn.tanh):
-#     self._num_units = num_units
-#     self._forget_bias = forget_bias
-#     self._activation = activation
+class Planar2DConvLSTMCell(tf.contrib.rnn.Conv2DLSTMCell):
+  """ Extension of convolutional LSTM recurrent network cell to accept multiple inputs (9 from the previous plane). 
 
-#     @property
-#     def state_size(self):
-#         return LSTMStateTuple(self._num_units, self._num_units)
+      Modified from https://github.com/tensorflow/tensorflow/pull/8891/files
+  """
 
-#     @property
-#     def output_size(self):
-#         return self._num_units
+  def __init__(self,activation=tf.tanh,*args,**kwargs):
+    super(Planar2DConvLSTMCell,self).__init__(*args,**kwargs)
+    self._activation = activation
 
-#     def __call__(self, inputs, state, scope=None):
-#         """Long short-term memory cell (LSTM).
-#         @param: inputs (batch,n)
-#         @param state: the states and hidden unit of the two cells
-#         """
-#         with tf.variable_scope(scope or type(self).__name__):
-#             c1, c2, h1, h2 = state
+  def call(self,inputs,state,scope=None):
+    """ Arrangement as follows, where the output cell would be positioned at c22 and shifted by one. 
+        c11 c12 c13
+        c21 c22 c23
+        c31 c32 c33
+    """
+    c11,c12,c13,c21,c22,c23,c31,c32,c33,h11,h12,h13,h21,h22,h23,h31,h32,h33 = state
+    new_hidden = tf.nn.rnn_cell._conv([inputs,h11,h12,h13,h21,h22,h23,h31,h32,h33],
+                       self._kernel_shape,
+                       (4+8)*self._output_channels,
+                       self._use_bias)
+    gates = tf.contrib.rnn.python.ops.array_ops.split(value=new_hidden,
+                                          num_or_size_splits=4+8,
+                                          axis=self._conv_ndims+1)
 
-#             # change bias argument to False since LN will add bias via shift
-#             concat = _linear([inputs, h1, h2], 5 * self._num_units, False)
+    input_gate,new_input,f11,f12,f13,f21,f22,f23,f31,f32,f33,output_gate = gates
+    new_cell = (tf.sigmoid(f11 + self._forget_bias) * c11) + \
+               (tf.sigmoid(f12 + self._forget_bias) * c12) + \
+               (tf.sigmoid(f13 + self._forget_bias) * c13) + \
+               (tf.sigmoid(f21 + self._forget_bias) * c21) + \
+               (tf.sigmoid(f22 + self._forget_bias) * c22) + \
+               (tf.sigmoid(f23 + self._forget_bias) * c23) + \
+               (tf.sigmoid(f31 + self._forget_bias) * c31) + \
+               (tf.sigmoid(f32 + self._forget_bias) * c32) + \
+               (tf.sigmoid(f33 + self._forget_bias) * c33) + \
+               (tf.sigmoid(input_gate) * self._activation(new_input))
+    output = self._activation(new_cell) * tf.sigmoid(output_gate)
 
-#             i, j, f1, f2, o = tf.split(value=concat, num_or_size_splits=5, axis=1)
-
-#             # add layer normalization to each gate
-#             i = ln(i, scope='i/')
-#             j = ln(j, scope='j/')
-#             f1 = ln(f1, scope='f1/')
-#             f2 = ln(f2, scope='f2/')
-#             o = ln(o, scope='o/')
-
-#             new_c = (c1 * tf.nn.sigmoid(f1 + self._forget_bias) +
-#                      c2 * tf.nn.sigmoid(f2 + self._forget_bias) + tf.nn.sigmoid(i) *
-#                      self._activation(j))
-
-#             # add layer_normalization in calculation of new hidden state
-#             new_h = self._activation(ln(new_c, scope='new_h/')) * tf.nn.sigmoid(o)
-#             new_state = LSTMStateTuple(new_c, new_h)
-
-#             return new_h, new_state
+    if self._skip_connection:
+      output = tf.contrib.rnn.python.ops.array_ops.concat([output, inputs], axis=-1)
+      new_state = tf.contrib.rnn.LSTMStateTuple(new_cell, output)
+      return output, new_state
 
 class PyramidLSTM(object):
-  def __init__(self,input_shape,scope_name="plstm"):
+  def __init__(self,input_shape,scope_name="p"):
     self.input_shape = input_shape
     self.scope_name = scope_name
 
@@ -231,9 +229,23 @@ class PyramidLSTM(object):
     Naming convention is 0,0 for top left
     """
 
-    # 1,2,3,4,5,6
-    pass 
-    
+    # Pad the input with zeros all around; should be n-1 for n-D
+    padSize = 2
+    paddings = tf.constant([[0,0,],[padSize,padSize,],[padSize,padSize,],[padSize,padSize,]])
+    padded_input = tf.pad(input,paddings,"CONSTANT")
+
+    # If the dimension is even, add another row to the end so that pyramid lstm ends up with 1 pixel
+    isEven = np.array(padded_input.get_shape().as_list()[1:]) % 2 == 0
+    isEven = isEven.astype(int)
+    paddings = tf.constant([[0,0,],[0,isEven[0],],[0,isEven[1],],[0,isEven[2],]])
+    padded_input = tf.pad(padded_input,paddings,"CONSTANT")
+    return
+
+    for direction in ['d1','d2','d3','d4','d5','d6']:
+      scope_name = '{}_{}'.format(self.scope_name,direction)
+
+      # with tf.variable_scope(scope_name):
+
     # with tf.variable_scope(self.scope_name):
     #   cells = []
     #   cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=self.input_shape,kernel_shape=[3, 3],output_channels=8)
