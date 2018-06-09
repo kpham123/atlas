@@ -447,7 +447,7 @@ class ATLASModel(object):
     - sess: A TensorFlow Session object.
     - {train,dev}_{input_paths,target_mask_paths}: A list of Python strs
       that represent pathnames to input image files and target mask files.
-    """
+    """    
     params = tf.trainable_variables()
     num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
 
@@ -613,21 +613,26 @@ class PyramidLstmATLASModel(ATLASModel):
 
   def build_graph(self):
     assert(self.input_dims == self.inputs_op.get_shape().as_list()[1:])
-    # print("self.input_dims:{}".format(self.input_dims))
-    # plstm = PyramidLSTM(input_shape=self.input_dims,scope_name="plstm")
-    # self.logits_op = plstm.build_graph(self.inputs_op)
-    # self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")
-    # self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,tf.uint8,name="predicted_masks")
+    # print('self.input_dims:{}'.format(self.inputs_op.get_shape().as_list()[1:]))
+    
+    mode = 'real'
 
-    c = tf.get_variable(initializer=tf.constant_initializer(-18.420680734),
-                        name="c",
-                        shape=())
-    self.logits_op = tf.ones(shape=[self.FLAGS.batch_size] + self.input_dims,
-                             dtype=tf.float32) * c
-    print('logits_shape:{}'.format(self.logits_op.shape))
-    self.predicted_mask_probs_op = tf.sigmoid(self.logits_op,
-                                              name="predicted_mask_probs")
-    self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,
-                                      tf.uint8,
-                                      name="predicted_masks")
-    print('predicted_masks_op_shape:{}'.format(self.predicted_masks_op.shape))
+    if mode == 'real':
+      plstm = PyramidLSTM(input_shape=self.input_dims,scope_name="p")
+      self.logits_op = tf.squeeze(plstm.build_graph(tf.expand_dims(self.inputs_op,-1)),axis=-1)
+      self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")
+      self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,tf.uint8,name="predicted_masks")
+
+    elif mode == 'dummy':
+      c = tf.get_variable(initializer=tf.constant_initializer(-18.420680734),
+                          name="c",
+                          shape=())
+      self.logits_op = tf.ones(shape=[self.FLAGS.batch_size] + self.input_dims,
+                               dtype=tf.float32) * c
+      print('logits_shape:{}'.format(self.logits_op.shape))
+      self.predicted_mask_probs_op = tf.sigmoid(self.logits_op,
+                                                name="predicted_mask_probs")
+      self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,
+                                        tf.uint8,
+                                        name="predicted_masks")
+      print('predicted_masks_op_shape:{}'.format(self.predicted_masks_op.shape))

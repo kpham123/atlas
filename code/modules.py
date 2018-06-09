@@ -227,22 +227,68 @@ class PyramidLSTM(object):
   def build_graph(self,input):
     """
     Naming convention is 0,0 for top left
+
+    Note that input data is (batch,h,w,d)
+
+    d1: (batch,h,w,d)
+    d2:-(batch,h,w,d)
+    d3: (batch,w,d,h)
+    d4:-(batch,w,d,h)
+    d5: (batch,d,h,w)
+    d6:-(batch,d,h,w)
     """
 
+    # Padding unnecessary since conv2d has padding=same under the hood
+    # Note if this is uncommented, need to adjust axis in each direction
     # Pad the input with zeros all around; should be n-1 for n-D
-    padSize = 2
-    paddings = tf.constant([[0,0,],[padSize,padSize,],[padSize,padSize,],[padSize,padSize,]])
-    padded_input = tf.pad(input,paddings,"CONSTANT")
+    # padSize = 2
+    # paddings = tf.constant([[0,0,],[padSize,padSize,],[padSize,padSize,],[padSize,padSize,]])
+    # padded_input = tf.pad(input,paddings,"CONSTANT")
+    padded_input = input
 
     # If the dimension is even, add another row to the end so that pyramid lstm ends up with 1 pixel
     isEven = np.array(padded_input.get_shape().as_list()[1:]) % 2 == 0
     isEven = isEven.astype(int)
-    paddings = tf.constant([[0,0,],[0,isEven[0],],[0,isEven[1],],[0,isEven[2],]])
+    paddings = tf.constant([[0,0,],[0,isEven[0],],[0,isEven[1],],[0,isEven[2],],[0,0]]) # Extra dimension due to expand_dims
     padded_input = tf.pad(padded_input,paddings,"CONSTANT")
-    return
+    self.padded_input_shape = padded_input.get_shape().as_list()[1:]
 
-    for direction in ['d1','d2','d3','d4','d5','d6']:
-      scope_name = '{}_{}'.format(self.scope_name,direction)
+    # finalCount should be h*w*c from self.input_shape
+    filter_size = [3,3]
+    hidden_units_per_pixel = 4
+
+    # State variables
+    finalCellCount = np.prod(np.array(self.padded_input_shape)) # finalCount should be h*w*3
+    time_index_length = self.padded_input_shape[0]
+    dim1 = self.padded_input_shape[1]
+    dim2 = self.padded_input_shape[2]
+    print(self.padded_input_shape)
+
+    # d1 will travel along h since inputs should be [batch_size, max_time, cell_state_size]
+    d1_input = tf.transpose(padded_input,[0,1,2,3,4])
+    assert((time_index_length==233) and (dim1==197) and (dim2==189))
+    d1_cell_input_shape = [dim1,dim2,1]
+    direction = 'd1'
+    scope_name = '{}_{}'.format(self.scope_name,direction)
+    d1_cells = []
+    for t in range(0,int((time_index_length-1)/2)):
+      with tf.variable_scope('{}_c{}_{}'.format(scope_name,t,direction)):
+        cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=d1_cell_input_shape,
+                                            kernel_shape=filter_size,
+                                            output_channels=hidden_units_per_pixel)
+      d1_cells.append(cell)
+    d1_multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(d1_cells)
+    outputs,multi_state_outputs = tf.nn.dynamic_rnn(cell=d1_multi_rnn_cell,inputs=padded_input,dtype=tf.float32)
+    final_state_tuple = multi_state_outputs[-1]
+    clstm_result = final_state_tuple[1]
+    print('clstm_result.get_shape().as_list():',clstm_result.get_shape().as_list())
+
+    exit();exit();exit()
+    direction = 'd2'
+    direction = 'd3'
+    direction = 'd4'
+    direction = 'd5'
+    direction = 'd6'
 
       # with tf.variable_scope(scope_name):
 
