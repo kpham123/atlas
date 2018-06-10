@@ -38,6 +38,7 @@ def main1():
 # print([(i,j) for j in range(0,i) for i in range(0,int((x.shape[0]+1)/2))])
 
 def main2():
+    """ Version without hidden units. """
     import tensorflow as tf
     import numpy as np
     sess = tf.InteractiveSession()
@@ -77,6 +78,8 @@ def main2():
         z = x1 + x2 + x3 + x4 + x5 + x6
         return z
 
+    # Normalize overlapping contexts back to an equal weighting per voxel (i.e. along edges, diagonals, and center pixel of the cube, etc.)
+    #  Generate the matrix to divide element-wise
     z = aggregate(x)
     print('z')
     print(z[0].eval(0))
@@ -87,8 +90,63 @@ def main2():
     print('z')
     print(z[0].eval(0))
     print(tf.reduce_sum(z).eval())
-    
-    # Normalize overlapping contexts back to an equal weighting per voxel (i.e. along edges, diagonals, and center pixel of the cube, etc.)
-    #  Generate the matrix to divide element-wise
 
-main2()
+def main2_with_hidden():
+    """ Version with hidden unit dimension. """
+    import tensorflow as tf
+    import numpy as np
+    sess = tf.InteractiveSession()
+    batchNumber = 2
+    x = tf.ones((batchNumber,5,5,5,1),dtype=tf.float32)
+
+    x = x[:,:,:,0:(x.shape[3]/2)+1,:]
+    # assert((x.get_shape().as_list()[0] == 5) and (x.get_shape().as_list()[1] == 5) and (x.get_shape().as_list()[2] == 3))
+
+    # Pad back to cubic
+    x = tf.pad(x,[[0,0],[0,0],[0,0],[0,2],[0,0]])
+
+    def aggregate(x):
+        def clean(x):
+            # Temporarily transpose hidden units to dimension 1
+            x = tf.transpose(x,[0,4,1,2,3])
+
+            # Clear pyramid along initial dimension 0
+            x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+            x = tf.reverse(x,axis=[4])
+            x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+            x = tf.reverse(x,axis=[4])
+
+            # Clear pyramid along initial dimension 1
+            x = tf.transpose(x,[0,1,3,2,4])
+            x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+            x = tf.reverse(x,axis=[4])
+            x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+            x = tf.reverse(x,axis=[4])
+            x = tf.transpose(x,[0,1,3,2,4])
+
+            # Undo temporary tranpose of hidden units
+            x = tf.transpose(x,[0,2,3,4,1])
+            return x
+
+        # Rotate all pyramids back to their orientation in the 3-d volume
+        x1 = clean(x)
+        x2 = tf.reverse(x1,axis=[3])
+        x3 = tf.transpose(x1,[0,3,1,2,4])
+        x4 = tf.reverse(x3,axis=[1])
+        x5 = tf.transpose(x1,[0,2,3,1,4])
+        x6 = tf.reverse(x5,axis=[2])
+        z = x1 + x2 + x3 + x4 + x5 + x6
+        return z
+
+    z = aggregate(x)
+    print('z')
+    print(z[0,:,:,:,0].eval(0))
+    print(tf.reduce_sum(z).eval())
+    
+    p_normalization = aggregate(tf.ones(x.shape))
+    z = tf.divide(z,p_normalization)
+    print('z')
+    print(z[0,:,:,:,0].eval(0))
+    print(tf.reduce_sum(z).eval())
+
+main2_with_hidden()
