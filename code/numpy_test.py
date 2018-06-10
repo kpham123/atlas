@@ -46,37 +46,45 @@ def main2():
     x = x[:,:,0:(x.shape[0]/2)+1]
     assert((x.get_shape().as_list()[0] == 5) and (x.get_shape().as_list()[1] == 5) and (x.get_shape().as_list()[2] == 3))
 
-    # Clear pyramid along initial dimension 0
-    
-    # x = tf.matrix_set_diag(x,tf.zeros(tf.matrix_diag_part(x).shape))
-    # print('x')
-    # print(x.eval(0))
-    # print(tf.reduce_sum(x).eval());exit()
-    
-    x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+    # Pad back to cubic
     x = tf.pad(x,[[0,0],[0,0],[0,2]])
-    x = tf.reverse(x,axis=[2])
-    x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
-    x = tf.reverse(x,axis=[2])
 
-    # Clear pyramid along initial dimension 1
-    x = tf.transpose(x,[1,0,2])
-    x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
-    x = tf.reverse(x,axis=[2])
-    x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
-    x = tf.reverse(x,axis=[2])
-    x = tf.transpose(x,[1,0,2])
+    def aggregate(x):
+        # Clear pyramid along initial dimension 0
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
 
-    # Rotate all pyramids back to their orientation in the 3-d volume
-    x2 = tf.reverse(x,axis=[2])
-    x3 = tf.transpose(x,[2,0,1])
-    x4 = tf.reverse(x3,axis=[0])
-    x5 = tf.transpose(x,[1,2,0])
-    x6 = tf.reverse(x5,axis=[1])
-    z = x + x2 + x3 + x4 + x5 + x6
+        # Clear pyramid along initial dimension 1
+        x = tf.transpose(x,[1,0,2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.transpose(x,[1,0,2])
 
-    # Normalize overlapping contexts back to an equal weighting per voxel (i.e. along edges, diagonals, and center pixel of the cube, etc.)
+        # Rotate all pyramids back to their orientation in the 3-d volume
+        x2 = tf.reverse(x,axis=[2])
+        x3 = tf.transpose(x,[2,0,1])
+        x4 = tf.reverse(x3,axis=[0])
+        x5 = tf.transpose(x,[1,2,0])
+        x6 = tf.reverse(x5,axis=[1])
+        z = x + x2 + x3 + x4 + x5 + x6
+        return z
+
+    z = aggregate(x)
     print('z')
     print(z.eval(0))
     print(tf.reduce_sum(z).eval())
+    
+    normalization = aggregate(tf.ones(x.shape))
+    z = tf.divide(z,normalization)
+    print('z')
+    print(z.eval(0))
+    print(tf.reduce_sum(z).eval())
+    
+    # Normalize overlapping contexts back to an equal weighting per voxel (i.e. along edges, diagonals, and center pixel of the cube, etc.)
+    #  Generate the matrix to divide element-wise
+
 main2()
