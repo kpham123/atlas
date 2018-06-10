@@ -226,6 +226,34 @@ class PyramidLSTM(NeuralNetwork):
     self.mode = mode
     self.scope_name = scope_name
 
+  def conv3d(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1, 1], padding="SAME"):
+    xavier_initializer = tf.contrib.layers.xavier_initializer
+    with tf.variable_scope(scope_name):
+      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="W",
+                          shape=filter_shape)
+      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="b",
+                          shape=[filter_shape[4]])
+      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
+      out = tf.nn.bias_add(out, b)
+      out = tf.nn.relu(out, name="out")
+      return out
+
+  def conv3d_relu(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1, 1], padding="SAME"):
+    xavier_initializer = tf.contrib.layers.xavier_initializer
+    with tf.variable_scope(scope_name):
+      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="W",
+                          shape=filter_shape)
+      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="b",
+                          shape=[filter_shape[4]])
+      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
+      out = tf.nn.bias_add(out, b)
+      out = tf.nn.relu(out, name="out")
+      return out
+
   def build_graph(self,input):
     """
     Naming convention is 0,0 for top left
@@ -251,7 +279,8 @@ class PyramidLSTM(NeuralNetwork):
     # Padding 1: If the dimension is even, add another row to the end so that pyramid lstm ends up with 1 pixel's result on each pyramid
     isEven = np.array(padded_input.get_shape().as_list()[1:]) % 2 == 0
     isEven = isEven.astype(int)
-    paddings = tf.constant([[0,0,],[0,isEven[0],],[0,isEven[1],],[0,isEven[2],],[0,0]]) # Extra dimension due to expand_dims
+    offset = 2
+    paddings = tf.constant([[0,0,],[int(offset/2),isEven[0]+int(offset/2),],[int(offset/2),isEven[1]+int(offset/2),],[int(offset/2),isEven[2]+int(offset/2),],[0,0]]) # Extra dimension due to expand_dims
     padded_input = tf.pad(padded_input,paddings,"CONSTANT")
     self.padded_input_shape = padded_input.get_shape().as_list()[1:4]
 
@@ -265,7 +294,7 @@ class PyramidLSTM(NeuralNetwork):
     padded_input = tf.pad(padded_input,paddings,"CONSTANT")
     self.padded_input_shape = padded_input.get_shape().as_list()[1:4]
 
-    filter_size = [7,7]
+    filter_size = [5,5]
     hidden_units_per_pixel = 8
 
     # finalCellCount should be h*w*c from self.input_shape
@@ -283,11 +312,11 @@ class PyramidLSTM(NeuralNetwork):
       if not reverse:
         p_input = p_input[:,0:int((time_index_length+1)/2),:,:,:]
       elif reverse:
-        p_input = tf.reverse(p_input[:,int((time_index_length-1)/2):,:,:,:],axis=[2])
+        p_input = tf.reverse(p_input[:,int((time_index_length-1)/2):,:,:,:],axis=[1])
 
-      # Confirm that each run of pyramid becomes 117
+      # Confirm that each run of pyramid becomes 118
       # print(p_input.get_shape().as_list()[1])
-      assert(p_input.get_shape().as_list()[1] == 117)
+      assert(p_input.get_shape().as_list()[1] == 118)
 
       # Initialize a cell (i.e. tensorflow layer) for every plane in the pyramid
       cell_input_shape = [dim1,dim2,1]
@@ -309,130 +338,105 @@ class PyramidLSTM(NeuralNetwork):
         # results = [multi_state_output[-1][1] for multi_state_output in multi_state_outputs]
         # results = tf.stack(results,axis=1)
         results = outputs
-        print('results.get_shape().as_list():',results.get_shape().as_list())
+        # print('results.get_shape().as_list():',results.get_shape().as_list())
       return results
 
-    def conv3d(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1], padding="SAME"):
-    xavier_initializer = tf.contrib.layers.xavier_initializer
-    with tf.variable_scope(scope_name):
-      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
-                          name="W",
-                          shape=filter_shape)
-      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
-                          name="b",
-                          shape=[filter_shape[3]])
-      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
-      out = tf.nn.bias_add(out, b)
-      out = tf.nn.relu(out, name="out")
-      return out
+    # Initialize each pyramid, convert rectangular prisms to pyramids and stitch together
+    clstm1 = pyramid(padded_input,'d1',[1,2,3],reverse=False)                             # (b,118,235,235,8)
+    clstm1 = tf.transpose(clstm1,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm1 = tf.pad(clstm1,[[0,0],[0,0],[0,0],[0,maxSize-clstm1.shape[3].value],[0,0]])   # (b,235,235,235,8)
+    assert((clstm1.get_shape().as_list()[1] == 235) and (clstm1.get_shape().as_list()[2] == 235) and (clstm1.get_shape().as_list()[3] == 235))
 
-    def conv3d_relu(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1], padding="SAME"):
-    xavier_initializer = tf.contrib.layers.xavier_initializer
-    with tf.variable_scope(scope_name):
-      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
-                          name="W",
-                          shape=filter_shape)
-      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
-                          name="b",
-                          shape=[filter_shape[3]])
-      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
-      out = tf.nn.bias_add(out, b)
-      out = tf.nn.relu(out, name="out")
-      return out
+    clstm2 = pyramid(padded_input,'d2',[1,2,3],reverse=True)                              # (b,118,235,235,8)
+    clstm2 = tf.transpose(clstm2,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm2 = tf.pad(clstm2,[[0,0],[0,0],[0,0],[0,maxSize-clstm2.shape[3].value],[0,0]])   # (b,235,235,235,8)
 
-    # Initialize each pyramid
-    clstm1 = pyramid(padded_input,'d1',[1,2,3],reverse=False) # (b,117,233,233,8)
-    clstm2 = pyramid(padded_input,'d2',[1,2,3],reverse=True)  # (b,117,233,233,8)
-    clstm3 = pyramid(padded_input,'d3',[2,3,1],reverse=False) # (b,117,233,233,8)
-    clstm4 = pyramid(padded_input,'d4',[2,3,1],reverse=True)  # (b,117,233,233,8)
-    clstm5 = pyramid(padded_input,'d5',[3,1,2],reverse=False) # (b,117,233,233,8)
-    clstm6 = pyramid(padded_input,'d6',[3,1,2],reverse=True)  # (b,117,233,233,8)
+    clstm3 = pyramid(padded_input,'d3',[2,3,1],reverse=False)                             # (b,118,235,235,8)
+    clstm3 = tf.transpose(clstm3,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm3 = tf.pad(clstm3,[[0,0],[0,0],[0,0],[0,maxSize-clstm3.shape[3].value],[0,0]])   # (b,235,235,235,8)
 
-    # Convert rectangular prisms to pyramids and stitch together into (b,233,233,233,8)
-    #  Pad back to cubic
-    x = tf.pad(x,[[0,0],[0,0],[0,0],[0,2]])
+    clstm4 = pyramid(padded_input,'d4',[2,3,1],reverse=True)                              # (b,118,235,235,8)
+    clstm4 = tf.transpose(clstm4,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm4 = tf.pad(clstm4,[[0,0],[0,0],[0,0],[0,maxSize-clstm4.shape[3].value],[0,0]])   # (b,235,235,235,8)
 
-    def aggregate(x):
+    clstm5 = pyramid(padded_input,'d5',[3,1,2],reverse=False)                             # (b,118,235,235,8)
+    clstm5 = tf.transpose(clstm5,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm5 = tf.pad(clstm5,[[0,0],[0,0],[0,0],[0,maxSize-clstm5.shape[3].value],[0,0]])   # (b,235,235,235,8)
+
+    clstm6 = pyramid(padded_input,'d6',[3,1,2],reverse=True)                              # (b,118,235,235,8)
+    clstm6 = tf.transpose(clstm6,[0,2,3,1,4])                                             # (b,235,235,118,8)
+    clstm6 = tf.pad(clstm6,[[0,0],[0,0],[0,0],[0,maxSize-clstm6.shape[3].value],[0,0]])   # (b,235,235,235,8)
+
+    def clean(x):
+        # Temporarily transpose hidden units to dimension 1
+        x = tf.transpose(x,[0,4,1,2,3])
+
         # Clear pyramid along initial dimension 0
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
-        x = tf.reverse(x,axis=[2])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
-        x = tf.reverse(x,axis=[2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[1])
+        x = tf.reverse(x,axis=[4])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[1])
+        x = tf.reverse(x,axis=[4])
 
         # Clear pyramid along initial dimension 1
-        x = tf.transpose(x,[1,0,2])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
-        x = tf.reverse(x,axis=[2])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
-        x = tf.reverse(x,axis=[2])
-        x = tf.transpose(x,[1,0,2])
+        x = tf.transpose(x,[0,1,3,2,4])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[1])
+        x = tf.reverse(x,axis=[4])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[1])
+        x = tf.reverse(x,axis=[4])
+        x = tf.transpose(x,[0,1,3,2,4])
 
-        # Rotate all pyramids back to their orientation in the 3-d volume
-        x2 = tf.reverse(x,axis=[2])
-        x3 = tf.transpose(x,[2,0,1])
-        x4 = tf.reverse(x3,axis=[0])
-        x5 = tf.transpose(x,[1,2,0])
-        x6 = tf.reverse(x5,axis=[1])
-        z = x + x2 + x3 + x4 + x5 + x6
-        return z
+        # Undo temporary tranpose of hidden units
+        x = tf.transpose(x,[0,2,3,4,1])
+        return x
 
-    result = tf.add_n([clstm1,clstm2,clstm3,clstm4,clstm5,clstm6]) # (b,117,233,233,4)
+    clstm1 = clean(clstm1)
+    print('clstm1.get_shape().as_list():',clstm1.get_shape().as_list())
 
-    conv1 = self.conv2d_relu(result, filter_shape=[3,3,3,] + [hidden_units_per_pixel,hidden_units_per_pixel], scope_name="conv1")  # (b, 117, 233, 233, 8)
+
+    clstm2 = clean(clstm2)
+    clstm2 = tf.reverse(clstm2,axis=[3])
+
+    clstm3 = clean(clstm3)
+    clstm3 = tf.transpose(clstm3,[0,3,1,2,4])
+    
+    clstm4 = clean(clstm4)
+    clstm4 = tf.transpose(clstm4,[0,3,1,2,4])
+    clstm4 = tf.reverse(clstm4,axis=[1])
+
+    clstm5 = clean(clstm5)
+    clstm5 = tf.transpose(clstm5,[0,2,3,1,4])
+
+    clstm6 = clean(clstm6)
+    clstm6 = tf.transpose(clstm6,[0,2,3,1,4])
+    clstm6 = tf.reverse(clstm6,axis=[2])
+
+    # Sum together clstm outputs; apply a correction due to a residual transpose from all the postprocessing
+    z = clstm1 + clstm2 + clstm3 + clstm4 + clstm5 + clstm6
+    z = tf.transpose(z,[0,3,1,2,4])
+
+    def p_norm_aggregate(x):
+      """ Simulate the rotation of all pyramids back to their orientation in the 3-d volume. """
+      x1 = clean(x)
+      x2 = tf.reverse(x1,axis=[3])
+      x3 = tf.transpose(x1,[0,3,1,2,4])
+      x4 = tf.reverse(x3,axis=[1])
+      x5 = tf.transpose(x1,[0,2,3,1,4])
+      x6 = tf.reverse(x5,axis=[2])
+      z = x1 + x2 + x3 + x4 + x5 + x6
+      return z
+
+    # Divide the output by a normalization due to overlapping pyramid regions along edges, diagonals, and the center
+    p_norm = p_norm_aggregate(tf.ones(tf.shape(clstm1)))
+    z = tf.divide(z,p_norm)   # (b,235,235,235,8)
+
+    z = z[:,:,int(np.ceil((maxSize-self.input_shape[1])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[1])/2)),int(np.ceil((maxSize-self.input_shape[2])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[2])/2)),:] # (b,235,198,191,8)
+    assert((z.get_shape().as_list()[1] == 235) and (z.get_shape().as_list()[2] == 198) and (z.get_shape().as_list()[3] == 191))
+
+    conv1 = self.conv3d_relu(z,filter_shape=[4,3,3]+[hidden_units_per_pixel,4],padding="VALID",scope_name="conv1")  # (b,232,196,189,4)
     drop1 = self.dropout(conv1, keep_prob=self.keep_prob, scope_name="drop1")
-    conv2 = self.conv2d(drop1, filter_shape=[1, 1, 1, hidden_units_per_pixel, 1], scope_name="conv2")  # (b, 117, 233, 233, 1)
+    conv2 = self.conv3d(drop1, filter_shape=[1, 1, 1, 4, 1], scope_name="conv2")  # (b,232,196,189,1)
+    assert((conv2.get_shape().as_list()[1] == 232) and (conv2.get_shape().as_list()[2] == 196) and (conv2.get_shape().as_list()[3] == 189))
 
-    # Option 1: Remove introduced padding
-    # Option 2: Convolv
+    out = tf.identity(conv2, name="out")
 
-    # # d1 will travel along h since inputs should be [batch_size, max_time, cell_state_size]
-    # direction = 'd1'
-    # d1_input = tf.transpose(padded_input,[0,1,2,3,4])
-    # assert((time_index_length==233) and (dim1==197) and (dim2==189))
-    # d1_cell_input_shape = [dim1,dim2,1]
-    # scope_name = '{}_{}'.format(self.scope_name,direction)
-    # d1_cells = []
-    # for t in range(0,int((time_index_length-1)/2)):
-    #   with tf.variable_scope('{}_c{}_{}'.format(scope_name,t,direction)):
-    #     cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=d1_cell_input_shape,
-    #                                         kernel_shape=filter_size,
-    #                                         output_channels=hidden_units_per_pixel)
-    #   d1_cells.append(cell)
-    # d1_multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(d1_cells)
-    # outputs,multi_state_outputs = tf.nn.dynamic_rnn(cell=d1_multi_rnn_cell,inputs=d1_input,dtype=tf.float32)
-    # final_state_tuple = multi_state_outputs[-1]
-    # d1_result = final_state_tuple[1] # e.g. 197x189x4
-    # # print('clstm_result.get_shape().as_list():',clstm_result.get_shape().as_list())
-
-    # direction = 'd2'
-    # d2_input = tf.reverse(d1_input[:,int((time_index_length-1)/2):,:,:,:],axis=1)
-    # assert((time_index_length==233) and (dim1==197) and (dim2==189))
-    # d2_cell_input_shape = [dim1,dim2,1]
-    # direction = 'd2'
-    # scope_name = '{}_{}'.format(self.scope_name,direction)
-    # d2_cells = []
-    # for t in range(0,int((time_index_length-1)/2)):
-    #   with tf.variable_scope('{}_c{}_{}'.format(scope_name,t,direction)):
-    #     cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=d2_cell_input_shape,
-    #                                         kernel_shape=filter_size,
-    #                                         output_channels=hidden_units_per_pixel)
-    #   d2_cells.append(cell)
-    # d2_multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(d2_cells)
-    # outputs,multi_state_outputs = tf.nn.dynamic_rnn(cell=d2_multi_rnn_cell,inputs=d2_input,dtype=tf.float32)
-    # final_state_tuple = multi_state_outputs[-1]
-    # d2_result = final_state_tuple[1]
-    # # print('clstm_result.get_shape().as_list():',clstm_result.get_shape().as_list())
-
-    exit();exit();exit()
-
-    direction = 'd3'
-    direction = 'd4'
-    direction = 'd5'
-    direction = 'd6'
-
-      # with tf.variable_scope(scope_name):
-
-    # with tf.variable_scope(self.scope_name):
-    #   cells = []
-    #   cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=self.input_shape,kernel_shape=[3, 3],output_channels=8)
-    #   (outputs,state) = tf.nn.dynamic_rnn(cell,x_image,time_major=False,dtype=tf.float32)
+    return out

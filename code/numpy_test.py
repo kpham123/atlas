@@ -213,16 +213,16 @@ def tt():
 
         print(x.get_shape().as_list())
         # Clear pyramid along initial dimension 0
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[1])
         x = tf.reverse(x,axis=[4])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[1])
         x = tf.reverse(x,axis=[4])
 
         # Clear pyramid along initial dimension 1
         x = tf.transpose(x,[0,1,3,2,4])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[1])
         x = tf.reverse(x,axis=[4])
-        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[1])
         x = tf.reverse(x,axis=[4])
         x = tf.transpose(x,[0,1,3,2,4])
 
@@ -263,14 +263,27 @@ def tt():
 
     z = clstm1+clstm2+clstm3+clstm4+clstm5+clstm6
     print('z:',z.get_shape().as_list())
-    z = tf.squeeze(z,[0,4])
-    z = tf.divide(z,norm)
-    print(z.eval())
 
-    z = tf.transpose(z,[2,0,1])
+    # z = tf.transpose(z,[2,0,1])
+    z = tf.transpose(z,[0,3,1,2,4])
     print('z_prime:',z.get_shape().as_list())
-    print(z.eval())
-    
+    print(tf.squeeze(z,[0,4]).eval())
+
+    def p_norm_aggregate(x):
+      """ Simulate the rotation of all pyramids back to their orientation in the 3-d volume. """
+      x1 = clean(x)
+      x2 = tf.reverse(x1,axis=[3])
+      x3 = tf.transpose(x1,[0,3,1,2,4])
+      x4 = tf.reverse(x3,axis=[1])
+      x5 = tf.transpose(x1,[0,2,3,1,4])
+      x6 = tf.reverse(x5,axis=[2])
+      z = x1 + x2 + x3 + x4 + x5 + x6
+      return z
+
+    # Divide the output by a normalization due to overlapping pyramid regions along edges, diagonals, and the center
+    p_norm = p_norm_aggregate(tf.ones(clstm1.shape))
+    z = tf.divide(z,p_norm)
+    print(tf.squeeze(z,[0,4]).eval())
 
 # main2_with_hidden()
 tt()
