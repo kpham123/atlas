@@ -348,7 +348,33 @@ class PyramidLSTM(NeuralNetwork):
     clstm5 = pyramid(padded_input,'d5',[3,1,2],reverse=False) # (b,117,233,233,8)
     clstm6 = pyramid(padded_input,'d6',[3,1,2],reverse=True)  # (b,117,233,233,8)
 
-    # Stitch pyramids together into (b,233,233,233,8)
+    # Convert rectangular prisms to pyramids and stitch together into (b,233,233,233,8)
+    #  Pad back to cubic
+    x = tf.pad(x,[[0,0],[0,0],[0,0],[0,2]])
+
+    def aggregate(x):
+        # Clear pyramid along initial dimension 0
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+
+        # Clear pyramid along initial dimension 1
+        x = tf.transpose(x,[1,0,2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,-1,0),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.map_fn(lambda z:tf.matrix_band_part(z,0,-1),x,parallel_iterations=x.get_shape().as_list()[0])
+        x = tf.reverse(x,axis=[2])
+        x = tf.transpose(x,[1,0,2])
+
+        # Rotate all pyramids back to their orientation in the 3-d volume
+        x2 = tf.reverse(x,axis=[2])
+        x3 = tf.transpose(x,[2,0,1])
+        x4 = tf.reverse(x3,axis=[0])
+        x5 = tf.transpose(x,[1,2,0])
+        x6 = tf.reverse(x5,axis=[1])
+        z = x + x2 + x3 + x4 + x5 + x6
+        return z
 
     result = tf.add_n([clstm1,clstm2,clstm3,clstm4,clstm5,clstm6]) # (b,117,233,233,4)
 
