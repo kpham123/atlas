@@ -219,9 +219,11 @@ class Planar2DConvLSTMCell(tf.contrib.rnn.Conv2DLSTMCell):
       new_state = tf.contrib.rnn.LSTMStateTuple(new_cell, output)
       return output, new_state
 
-class PyramidLSTM(object):
-  def __init__(self,input_shape,scope_name="p"):
+class PyramidLSTM(NeuralNetwork):
+  def __init__(self,input_shape,keep_prob,mode,scope_name="p"):
     self.input_shape = input_shape
+    self.keep_prob = keep_prob
+    self.mode = mode
     self.scope_name = scope_name
 
   def build_graph(self,input):
@@ -263,8 +265,8 @@ class PyramidLSTM(object):
     padded_input = tf.pad(padded_input,paddings,"CONSTANT")
     self.padded_input_shape = padded_input.get_shape().as_list()[1:4]
 
-    filter_size = [3,3]
-    hidden_units_per_pixel = 4
+    filter_size = [7,7]
+    hidden_units_per_pixel = 8
 
     # finalCellCount should be h*w*c from self.input_shape
     # finalCellCount = np.prod(np.array(self.padded_input_shape)) # finalCount should be h*w*3
@@ -301,19 +303,61 @@ class PyramidLSTM(object):
       # Connect layers together
       with tf.variable_scope(scope_name):
         multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
-        outputs,multi_state_outputs = tf.nn.dynamic_rnn(cell=multi_rnn_cell,inputs=p_input,dtype=tf.float32)
-        final_state_tuple = multi_state_outputs[-1]
-        result = final_state_tuple[1] # e.g. 197x189x4 or 233x233x4
-        print('result.get_shape().as_list():',result.get_shape().as_list())
-      return result
+        outputs,_ = tf.nn.dynamic_rnn(cell=multi_rnn_cell,inputs=p_input,dtype=tf.float32)
+        # final_state_tuple = multi_state_outputs[-1]
+        # result = final_state_tuple[1] # e.g. 197x189x4 or 233x233x4
+        # results = [multi_state_output[-1][1] for multi_state_output in multi_state_outputs]
+        # results = tf.stack(results,axis=1)
+        results = outputs
+        print('results.get_shape().as_list():',results.get_shape().as_list())
+      return results
+
+    def conv3d(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1], padding="SAME"):
+    xavier_initializer = tf.contrib.layers.xavier_initializer
+    with tf.variable_scope(scope_name):
+      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="W",
+                          shape=filter_shape)
+      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="b",
+                          shape=[filter_shape[3]])
+      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
+      out = tf.nn.bias_add(out, b)
+      out = tf.nn.relu(out, name="out")
+      return out
+
+    def conv3d_relu(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1], padding="SAME"):
+    xavier_initializer = tf.contrib.layers.xavier_initializer
+    with tf.variable_scope(scope_name):
+      W = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="W",
+                          shape=filter_shape)
+      b = tf.get_variable(initializer=xavier_initializer(uniform=False),
+                          name="b",
+                          shape=[filter_shape[3]])
+      out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
+      out = tf.nn.bias_add(out, b)
+      out = tf.nn.relu(out, name="out")
+      return out
 
     # Initialize each pyramid
-    clstm1 = pyramid(padded_input,'d1',[1,2,3],reverse=False)
-    clstm2 = pyramid(padded_input,'d2',[1,2,3],reverse=True)
-    clstm3 = pyramid(padded_input,'d3',[2,3,1],reverse=False)
-    clstm4 = pyramid(padded_input,'d4',[2,3,1],reverse=True)
-    clstm5 = pyramid(padded_input,'d5',[3,1,2],reverse=False)
-    clstm6 = pyramid(padded_input,'d6',[3,1,2],reverse=True)
+    clstm1 = pyramid(padded_input,'d1',[1,2,3],reverse=False) # (b,117,233,233,8)
+    clstm2 = pyramid(padded_input,'d2',[1,2,3],reverse=True)  # (b,117,233,233,8)
+    clstm3 = pyramid(padded_input,'d3',[2,3,1],reverse=False) # (b,117,233,233,8)
+    clstm4 = pyramid(padded_input,'d4',[2,3,1],reverse=True)  # (b,117,233,233,8)
+    clstm5 = pyramid(padded_input,'d5',[3,1,2],reverse=False) # (b,117,233,233,8)
+    clstm6 = pyramid(padded_input,'d6',[3,1,2],reverse=True)  # (b,117,233,233,8)
+
+    # Stitch pyramids together into (b,233,233,233,8)
+
+    result = tf.add_n([clstm1,clstm2,clstm3,clstm4,clstm5,clstm6]) # (b,117,233,233,4)
+
+    conv1 = self.conv2d_relu(result, filter_shape=[3,3,3,] + [hidden_units_per_pixel,hidden_units_per_pixel], scope_name="conv1")  # (b, 117, 233, 233, 8)
+    drop1 = self.dropout(conv1, keep_prob=self.keep_prob, scope_name="drop1")
+    conv2 = self.conv2d(drop1, filter_shape=[1, 1, 1, hidden_units_per_pixel, 1], scope_name="conv2")  # (b, 117, 233, 233, 1)
+
+    # Option 1: Remove introduced padding
+    # Option 2: Convolv
 
     # # d1 will travel along h since inputs should be [batch_size, max_time, cell_state_size]
     # direction = 'd1'

@@ -604,11 +604,12 @@ class UNetATLASModel(ATLASModel):
 
 class PyramidLstmATLASModel(ATLASModel):
   def __init__(self,FLAGS):
-    """ Initializes a Pyramid LSTM ATLAS model. For now, contains ZeroATLAS model results.
+    """ Initializes a Pyramid LSTM ATLAS model. Has an option to contain ZeroATLAS model results.
 
     Inputs:
     - FLAGS: A _FlagValuesWrapper object passed in from main.py.
     """
+    self.mode = FLAGS.mode
     super().__init__(FLAGS)
 
   def build_graph(self):
@@ -618,7 +619,10 @@ class PyramidLstmATLASModel(ATLASModel):
     mode = 'real'
 
     if mode == 'real':
-      plstm = PyramidLSTM(input_shape=self.input_dims,scope_name="p")
+      plstm = PyramidLSTM(input_shape=self.input_dims,
+                          keep_prob=self.keep_prob,
+                          mode=self.mode,
+                          scope_name="p")
       self.logits_op = tf.squeeze(plstm.build_graph(tf.expand_dims(self.inputs_op,-1)),axis=-1)
       self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")
       self.predicted_masks_op = tf.cast(self.predicted_mask_probs_op > 0.5,tf.uint8,name="predicted_masks")
