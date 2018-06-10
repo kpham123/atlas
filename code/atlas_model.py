@@ -13,7 +13,7 @@ from tqdm import tqdm
 import utils
 from data_batcher import SliceBatchGenerator
 from modules import ConvEncoder, DeconvDecoder, UNet, PyramidLSTM
-
+from pprint import pprint
 
 class ATLASModel(object):
   def __init__(self, FLAGS):
@@ -33,6 +33,9 @@ class ATLASModel(object):
     # Defines the trainable parameters, gradient, gradient norm, and clip by
     # gradient norm
     params = tf.trainable_variables()
+    # print('Number of trainable parameters:',np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
+    # pprint([n.name for n in tf.get_default_graph().as_graph_def().node]);exit()
+
     gradients = tf.gradients(self.loss, params)
     self.gradient_norm = tf.global_norm(gradients)
     clipped_gradients, _ = tf.clip_by_global_norm(gradients,
@@ -198,6 +201,11 @@ class ATLASModel(object):
       "param_norm": self.param_norm,
       "grad_norm": self.gradient_norm
     }
+
+    # Run any shared tensors i.e. p_norm
+    print('Now calculating p_norm_cached')
+    sess.run(tf.get_default_graph().get_tensor_by_name('ATLASModel/p_norm_cached').initializer,input_feed)
+    print('Finished running p_norm_cached')
 
     # Runs the model
     results = sess.run(output_feed, input_feed)
@@ -610,6 +618,7 @@ class PyramidLstmATLASModel(ATLASModel):
     - FLAGS: A _FlagValuesWrapper object passed in from main.py.
     """
     self.mode = FLAGS.mode
+    self.batch_size = FLAGS.batch_size
     super().__init__(FLAGS)
 
   def build_graph(self):
@@ -622,6 +631,7 @@ class PyramidLstmATLASModel(ATLASModel):
       plstm = PyramidLSTM(input_shape=self.input_dims,
                           keep_prob=self.keep_prob,
                           mode=self.mode,
+                          batch_size=self.batch_size,
                           scope_name="p")
       self.logits_op = tf.squeeze(plstm.build_graph(tf.expand_dims(self.inputs_op,-1)),axis=-1)
       self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")

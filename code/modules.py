@@ -220,10 +220,11 @@ class Planar2DConvLSTMCell(tf.contrib.rnn.Conv2DLSTMCell):
       return output, new_state
 
 class PyramidLSTM(NeuralNetwork):
-  def __init__(self,input_shape,keep_prob,mode,scope_name="p"):
+  def __init__(self,input_shape,keep_prob,mode,batch_size,scope_name="p"):
     self.input_shape = input_shape
     self.keep_prob = keep_prob
     self.mode = mode
+    self.batch_size = batch_size
     self.scope_name = scope_name
 
   def conv3d(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1, 1], padding="SAME"):
@@ -237,7 +238,6 @@ class PyramidLSTM(NeuralNetwork):
                           shape=[filter_shape[4]])
       out = tf.nn.conv3d(input, W, padding=padding, strides=strides)
       out = tf.nn.bias_add(out, b)
-      out = tf.nn.relu(out, name="out")
       return out
 
   def conv3d_relu(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1, 1], padding="SAME"):
@@ -390,8 +390,7 @@ class PyramidLSTM(NeuralNetwork):
         return x
 
     clstm1 = clean(clstm1)
-    print('clstm1.get_shape().as_list():',clstm1.get_shape().as_list())
-
+    # print('clstm1.get_shape().as_list():',clstm1.get_shape().as_list())
 
     clstm2 = clean(clstm2)
     clstm2 = tf.reverse(clstm2,axis=[3])
@@ -427,15 +426,17 @@ class PyramidLSTM(NeuralNetwork):
 
     # Divide the output by a normalization due to overlapping pyramid regions along edges, diagonals, and the center
     p_norm = p_norm_aggregate(tf.ones(tf.shape(clstm1)))
-    z = tf.divide(z,p_norm)   # (b,235,235,235,8)
+    p_norm_cached = tf.Variable(p_norm,validate_shape=False)
+    
+    z = tf.divide(z,p_norm_cached)   # (b,235,235,235,8)
 
     z = z[:,:,int(np.ceil((maxSize-self.input_shape[1])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[1])/2)),int(np.ceil((maxSize-self.input_shape[2])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[2])/2)),:] # (b,235,198,191,8)
-    assert((z.get_shape().as_list()[1] == 235) and (z.get_shape().as_list()[2] == 198) and (z.get_shape().as_list()[3] == 191))
+    # assert((z.get_shape().as_list()[1] == 235) and (z.get_shape().as_list()[2] == 198) and (z.get_shape().as_list()[3] == 191))
 
     conv1 = self.conv3d_relu(z,filter_shape=[4,3,3]+[hidden_units_per_pixel,4],padding="VALID",scope_name="conv1")  # (b,232,196,189,4)
     drop1 = self.dropout(conv1, keep_prob=self.keep_prob, scope_name="drop1")
     conv2 = self.conv3d(drop1, filter_shape=[1, 1, 1, 4, 1], scope_name="conv2")  # (b,232,196,189,1)
-    assert((conv2.get_shape().as_list()[1] == 232) and (conv2.get_shape().as_list()[2] == 196) and (conv2.get_shape().as_list()[3] == 189))
+    # assert((conv2.get_shape().as_list()[1] == 232) and (conv2.get_shape().as_list()[2] == 196) and (conv2.get_shape().as_list()[3] == 189))
 
     out = tf.identity(conv2, name="out")
 
