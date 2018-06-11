@@ -30,8 +30,9 @@ class ATLASModel(object):
       self.build_graph()
       self.add_loss()
 
-    # Defines the trainable parameters, gradient, gradient norm, and clip by
-    # gradient norm
+    print('Finished add_placeholders, build_graph, add_loss')
+
+    # Defines the trainable parameters, gradient, gradient norm, and clip by gradient norm
     params = tf.trainable_variables()
     # print('Number of trainable parameters:',np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
     # pprint([n.name for n in tf.get_default_graph().as_graph_def().node]);exit()
@@ -201,11 +202,6 @@ class ATLASModel(object):
       "param_norm": self.param_norm,
       "grad_norm": self.gradient_norm
     }
-
-    # Run any shared tensors i.e. p_norm
-    print('Now calculating p_norm_cached')
-    sess.run(tf.get_default_graph().get_tensor_by_name('ATLASModel/p_norm_cached').initializer,input_feed)
-    print('Finished running p_norm_cached')
 
     # Runs the model
     results = sess.run(output_feed, input_feed)
@@ -470,6 +466,11 @@ class ATLASModel(object):
     # For TensorBoard
     summary_writer = tf.summary.FileWriter(self.FLAGS.train_dir, sess.graph)
 
+    # Run any shared tensors i.e. p_norm
+    print('Now calculating p_norm_cached')
+    sess.run(tf.get_default_graph().get_tensor_by_name('ATLASModel/p_norm_cached').initializer,input_feed)
+    print('Finished running p_norm_cached')
+
     epoch = 0
     num_epochs = self.FLAGS.num_epochs
     while num_epochs == None or epoch < num_epochs:
@@ -619,12 +620,17 @@ class PyramidLstmATLASModel(ATLASModel):
     """
     self.mode = FLAGS.mode
     self.batch_size = FLAGS.batch_size
+    self.d1 = FLAGS.slice_height
+    self.d2 = FLAGS.slice_width
+    self.d3 = FLAGS.scan_depth
     super().__init__(FLAGS)
 
   def build_graph(self):
     assert(self.input_dims == self.inputs_op.get_shape().as_list()[1:])
     # print('self.input_dims:{}'.format(self.inputs_op.get_shape().as_list()[1:]))
     
+    print('Building graph for pyramid lstm')
+
     mode = 'real'
 
     if mode == 'real':
@@ -632,6 +638,9 @@ class PyramidLstmATLASModel(ATLASModel):
                           keep_prob=self.keep_prob,
                           mode=self.mode,
                           batch_size=self.batch_size,
+                          d1=self.d1,
+                          d2=self.d2,
+                          d3=self.d3,
                           scope_name="p")
       self.logits_op = tf.squeeze(plstm.build_graph(tf.expand_dims(self.inputs_op,-1)),axis=-1)
       self.predicted_mask_probs_op = tf.tanh(self.logits_op,name="predicted_mask_probs")

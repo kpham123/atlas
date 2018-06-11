@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import tensorflow as tf
+import numpy as np
 
 from split import setup_train_dev_split
 
@@ -113,7 +114,7 @@ FLAGS = tf.app.flags.FLAGS
 os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
 
-def initialize_model(sess, model, train_dir, expect_exists=False):
+def initialize_model(sess, model, train_dir, expect_exists=False, inputDims=None):
   """
   Initializes the model from {train_dir}.
 
@@ -137,7 +138,36 @@ def initialize_model(sess, model, train_dir, expect_exists=False):
     else:
       print(f"There is no saved checkpoint at {train_dir}. Creating model "
             f"with fresh parameters.")
-      sess.run(tf.global_variables_initializer())
+      print('Initializing local')
+      sess.run(tf.local_variables_initializer())
+      # print('Uninitialized:')
+      # print(sess.run(tf.report_uninitialized_variables()))
+
+      kbvars = []
+      # names = []
+      for i in range(0,118):
+        for j in range(1,7):
+          with tf.variable_scope("",reuse=True):
+            kbvars.append(tf.get_variable('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/kernel'.format(i,j,i)))
+            kbvars.append(tf.get_variable('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/biases'.format(i,j,i)))
+          # sess.run(tf.get_variable())
+          # print(' Initializing k/b of cell {}'.format(i))
+          # sess.run(tf.get_default_graph().get_tensor_by_name('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/kernel:0'.format(i,j,i)).initializer)
+          # sess.run(tf.get_default_graph().get_tensor_by_name('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/biases:0'.format(i,j,i)).initializer)
+      #     names.append('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/kernel:0'.format(i,j,i))
+      #     names.append('ATLASModel/rnn/multi_rnn_cell/cell_{}/p_d{}_ct{}/biases:0'.format(i,j,i))
+      # print('Initializing kbs')
+      sess.run(tf.variables_initializer(kbvars))
+      
+      print('Initializing global')
+      sess.run(tf.global_variables_initializer(),{"ATLASModel/input:0":np.zeros(inputDims,dtype=np.float32)})
+      # for variable in tf.global_variables():
+      #   if variable.name not in names:
+      #     print(' Initializing',variable.name)
+      #     sess.run(tf.variables_initializer([variable]))
+      print('Uninitialized:')
+      print(sess.run(tf.report_uninitialized_variables()))
+
 
 
 def main(_):
@@ -187,8 +217,21 @@ def main(_):
 
     with tf.Session(config=config) as sess:
       # Loads the most recent model
-      initialize_model(sess, atlas_model, FLAGS.train_dir, expect_exists=False)
+      print('Initializing model')
+      initialize_model(sess, atlas_model, FLAGS.train_dir, expect_exists=False,inputDims=[FLAGS.batch_size,FLAGS.slice_height,FLAGS.slice_width,FLAGS.scan_depth])
 
+      # print('Initializing uninitialized')
+      # def initialize_uninitialized(sess):
+      #   global_vars          = tf.global_variables()
+      #   is_not_initialized   = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+      #   not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+
+      #   print([str(i.name) for i in not_initialized_vars]) # only for testing
+      #   if len(not_initialized_vars):
+      #       sess.run(tf.variables_initializer(not_initialized_vars))
+      # initialize_uninitialized(sess)
+
+      print('Running train')
       # Trains the model
       atlas_model.train(sess, *setup_train_dev_split(FLAGS))
   elif FLAGS.mode == "eval":
@@ -197,7 +240,7 @@ def main(_):
       logging.basicConfig(level=logging.INFO)
 
       # Loads the most recent model
-      initialize_model(sess, atlas_model, FLAGS.train_dir, expect_exists=True)
+      initialize_model(sess, atlas_model, FLAGS.train_dir, expect_exists=True,inputDims=[FLAGS.batch_size,FLAGS.slice_height,FLAGS.slice_width,FLAGS.scan_depth])
 
       # Shows examples from the dev set
       _, _, dev_input_paths, dev_target_mask_paths =\

@@ -220,11 +220,14 @@ class Planar2DConvLSTMCell(tf.contrib.rnn.Conv2DLSTMCell):
       return output, new_state
 
 class PyramidLSTM(NeuralNetwork):
-  def __init__(self,input_shape,keep_prob,mode,batch_size,scope_name="p"):
+  def __init__(self,input_shape,keep_prob,mode,batch_size,d1,d2,d3,scope_name="p"):
     self.input_shape = input_shape
     self.keep_prob = keep_prob
     self.mode = mode
     self.batch_size = batch_size
+    self.d1 = d1
+    self.d2 = d2
+    self.d3 = d3
     self.scope_name = scope_name
 
   def conv3d(self, input, filter_shape, scope_name, strides=[1, 1, 1, 1, 1], padding="SAME"):
@@ -277,7 +280,7 @@ class PyramidLSTM(NeuralNetwork):
     padded_input = input
 
     # Padding 1: If the dimension is even, add another row to the end so that pyramid lstm ends up with 1 pixel's result on each pyramid
-    isEven = np.array(padded_input.get_shape().as_list()[1:]) % 2 == 0
+    isEven = np.array([self.d1,self.d2,self.d3]) % 2 == 0
     isEven = isEven.astype(int)
     offset = 2
     paddings = tf.constant([[0,0,],[int(offset/2),isEven[0]+int(offset/2),],[int(offset/2),isEven[1]+int(offset/2),],[int(offset/2),isEven[2]+int(offset/2),],[0,0]]) # Extra dimension due to expand_dims
@@ -305,10 +308,11 @@ class PyramidLSTM(NeuralNetwork):
       Note 1: inputTensor is [batch_size,a,b,c,1]
       Note 2: ordering is an anagram list of [1,2,3]
       """
+      print('Generating pyramid',directionName)
 
       # Reorder based on the 6 pyramids and add reversal if needed
       p_input = tf.transpose(inputTensor,[0,*ordering,4])
-      _,time_index_length,dim1,dim2,_ = p_input.get_shape().as_list()
+      _,time_index_length,dim1,dim2,_ = [0,235,235,235,0]
       if not reverse:
         p_input = p_input[:,0:int((time_index_length+1)/2),:,:,:]
       elif reverse:
@@ -323,23 +327,24 @@ class PyramidLSTM(NeuralNetwork):
       cells = []
       scope_name = '{}_{}'.format(self.scope_name,directionName)
       for t in range(0,int((time_index_length+1)/2)):
-        with tf.variable_scope('{}_t{}'.format(scope_name,t)):
-          cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=cell_input_shape,
-                                              kernel_shape=filter_size,
-                                              output_channels=hidden_units_per_pixel)
+        # with tf.variable_scope('{}_t{}'.format(scope_name,t),reuse=True):
+        cell = tf.contrib.rnn.Conv2DLSTMCell(input_shape=[235,235,1],
+                                            kernel_shape=[5,5],
+                                            output_channels=8,
+                                            name='{}_ct{}'.format(scope_name,t))
         cells.append(cell)
 
       # Connect layers together
-      with tf.variable_scope(scope_name):
-        multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
-        outputs,_ = tf.nn.dynamic_rnn(cell=multi_rnn_cell,inputs=p_input,dtype=tf.float32)
+      # with tf.variable_scope(scope_name):
+      multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(cells)
+      outputs,_ = tf.nn.dynamic_rnn(cell=multi_rnn_cell,inputs=p_input,dtype=tf.float32)
         # final_state_tuple = multi_state_outputs[-1]
         # result = final_state_tuple[1] # e.g. 197x189x4 or 233x233x4
         # results = [multi_state_output[-1][1] for multi_state_output in multi_state_outputs]
         # results = tf.stack(results,axis=1)
-        results = outputs
+        # results = outputs
         # print('results.get_shape().as_list():',results.get_shape().as_list())
-      return results
+      return outputs
 
     # Initialize each pyramid, convert rectangular prisms to pyramids and stitch together
     clstm1 = pyramid(padded_input,'d1',[1,2,3],reverse=False)                             # (b,118,235,235,8)
@@ -426,8 +431,9 @@ class PyramidLSTM(NeuralNetwork):
 
     # Divide the output by a normalization due to overlapping pyramid regions along edges, diagonals, and the center
     p_norm = p_norm_aggregate(tf.ones(tf.shape(clstm1)))
-    p_norm_cached = tf.Variable(p_norm,validate_shape=False)
-    
+    # with tf.variable_scope('pnc'):
+    p_norm_cached = tf.Variable(p_norm,validate_shape=False,trainable=False,name='p_norm_cached')
+
     z = tf.divide(z,p_norm_cached)   # (b,235,235,235,8)
 
     z = z[:,:,int(np.ceil((maxSize-self.input_shape[1])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[1])/2)),int(np.ceil((maxSize-self.input_shape[2])/2))-int(offset/2):int(offset/2)+maxSize-int(((maxSize-self.input_shape[2])/2)),:] # (b,235,198,191,8)
